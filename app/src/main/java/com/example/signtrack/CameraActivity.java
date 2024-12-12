@@ -1,147 +1,141 @@
 package com.example.signtrack;
 
-import android.Manifest;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.os.Bundle;
-import android.util.Log;
-import android.view.Surface;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
+import android.view.View;
+import android.widget.ImageButton;
+import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.camera.core.Camera;
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ImageAnalysis;
-import androidx.camera.core.ImageProxy;
 import androidx.camera.core.Preview;
 import androidx.camera.lifecycle.ProcessCameraProvider;
+import androidx.constraintlayout.widget.ConstraintLayout;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-import androidx.lifecycle.LifecycleOwner;
+import androidx.camera.view.PreviewView;
+import androidx.core.content.PermissionChecker;
 
-import com.example.signtrack.databinding.ActivityCameraBinding;
+import com.google.common.util.concurrent.ListenableFuture;
 
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutionException;
 
 public class CameraActivity extends AppCompatActivity {
 
-    private static final int REQUEST_CODE_PERMISSIONS = 10;
-    private static final String TAG = "CameraActivity";
-
-    private ActivityCameraBinding binding;
-
-    // Daftar izin yang diperlukan (CAMERA, RECORD_AUDIO)
-    private static final String[] REQUIRED_PERMISSIONS = new String[]{
-            Manifest.permission.CAMERA,
-            Manifest.permission.RECORD_AUDIO
-    };
-
-    // Executor untuk thread latar belakang (ImageAnalysis berjalan di thread ini)
-    private ExecutorService cameraExecutor;
+    private PreviewView viewPreview; // PreviewView
+    private ImageButton backButton, flashToggleIB, flipCameraIB;
+    private TextView translationText;
+    private Camera camera;
+    private boolean isFlashOn = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_camera);
 
-        binding = ActivityCameraBinding.inflate(getLayoutInflater());
-        setContentView(binding.getRoot());
+        // Initialize UI components
+        viewPreview = findViewById(R.id.viewPreview); // Ensure the ID matches the layout XML
+        backButton = findViewById(R.id.backButton);
+        flashToggleIB = findViewById(R.id.flashToggleIB);
+        flipCameraIB = findViewById(R.id.flipCameraIB);
+        translationText = findViewById(R.id.translationText);
 
-        // Meminta izin untuk kamera dan mikrofon
-        if (allPermissionsGranted()) {
-            startCamera();
-        } else {
-            ActivityCompat.requestPermissions(this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS);
-        }
-
-        // Menambahkan listener untuk tombol back
-        binding.backButton.setOnClickListener(v -> {
-            // Menggunakan Intent untuk kembali ke LandingPageActivity
-            Intent intent = new Intent(CameraActivity.this, LandingPageActivity.class);
+        // Set click listener for back button
+        backButton.setOnClickListener(v -> {
+            Intent intent = new Intent(CameraActivity.this, LandingPageActivity.class); // Go back to LandingPageActivity
             startActivity(intent);
-            finish(); // Menutup CameraActivity setelah pindah ke LandingPageActivity
+            finish();
         });
 
-        // Inisialisasi Executor untuk CameraX
-        cameraExecutor = Executors.newSingleThreadExecutor();
-    }
-
-    // Memeriksa apakah izin yang diperlukan sudah diberikan
-    private boolean allPermissionsGranted() {
-        for (String permission : REQUIRED_PERMISSIONS) {
-            if (ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_DENIED) {
-                return false;
-            }
+        // Check and request camera permission if not granted
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA)
+                == PermissionChecker.PERMISSION_GRANTED) {
+            startCamera();
+        } else {
+            ActivityCompat.requestPermissions(this, new String[]{android.Manifest.permission.CAMERA}, 1);
         }
-        return true;
+
+        // Flash toggle functionality
+        flashToggleIB.setOnClickListener(v -> toggleFlash());
+
+        // Camera flip functionality
+        flipCameraIB.setOnClickListener(v -> flipCamera());
     }
 
-    // Menangani hasil permintaan izin dari pengguna
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQUEST_CODE_PERMISSIONS) {
-            if (allPermissionsGranted()) {
-                startCamera();
-            } else {
-                Toast.makeText(this, "Permissions not granted by the user.", Toast.LENGTH_SHORT).show();
-                finish();
-            }
-        }
-    }
-
-    // Memulai kamera dengan CameraX
     private void startCamera() {
-        // Mendapatkan instance CameraProvider
-        ProcessCameraProvider cameraProviderFuture = ProcessCameraProvider.getInstance(this);
-
+        // Create an instance of ProcessCameraProvider
+        ListenableFuture<ProcessCameraProvider> cameraProviderFuture = ProcessCameraProvider.getInstance(this);
         cameraProviderFuture.addListener(() -> {
             try {
-                // Mendapatkan CameraProvider yang sudah siap
+                // Get camera provider instance
                 ProcessCameraProvider cameraProvider = cameraProviderFuture.get();
 
-                // Preview - menampilkan tampilan kamera di SurfaceView
+                // Create preview use case
                 Preview preview = new Preview.Builder().build();
-                preview.setSurfaceProvider(binding.viewPreview.getSurfaceProvider());
+                preview.setSurfaceProvider(viewPreview.getSurfaceProvider());
 
-                // CameraSelector untuk memilih kamera belakang (atau depan)
+                // Select camera (back camera by default)
                 CameraSelector cameraSelector = new CameraSelector.Builder()
-                        .requireLensFacing(CameraSelector.LENS_FACING_BACK) // Gunakan kamera belakang
+                        .requireLensFacing(CameraSelector.LENS_FACING_BACK)
                         .build();
 
-                // ImageAnalysis untuk menganalisis gambar dari kamera
-                ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
-                        .setTargetResolution(new android.util.Size(1280, 720))
-                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                        .build();
+                // Set up image analysis and preview use case
+                ImageAnalysis imageAnalysis = new ImageAnalysis.Builder().build();
 
-                imageAnalysis.setAnalyzer(cameraExecutor, new ImageAnalysis.Analyzer() {
-                    @Override
-                    public void analyze(@NonNull ImageProxy image) {
-                        // Di sini Anda dapat mengolah gambar untuk mengenali gerakan tangan
-                        // Anda bisa menambahkan model penerjemahan bahasa isyarat di sini
-                        Log.d(TAG, "Image captured: " + image.getWidth() + "x" + image.getHeight());
-                        image.close();
-                    }
-                });
-
-                // Kamera yang akan digunakan
-                Camera camera = cameraProvider.bindToLifecycle((LifecycleOwner) this, cameraSelector, preview, imageAnalysis);
-
-            } catch (Exception e) {
-                Log.e(TAG, "Error starting camera: " + e.getMessage());
+                // Bind use cases to camera provider
+                camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis);
+            } catch (ExecutionException | InterruptedException e) {
+                Toast.makeText(this, "Failed to start camera", Toast.LENGTH_SHORT).show();
             }
         }, ContextCompat.getMainExecutor(this));
     }
 
+    private void toggleFlash() {
+        // Toggle flash on/off
+        if (camera != null) {
+            isFlashOn = !isFlashOn;
+            camera.getCameraControl().enableTorch(isFlashOn);
+            flashToggleIB.setImageResource(isFlashOn ? R.drawable.flash_on : R.drawable.flash_off);
+        }
+    }
+
+    private void flipCamera() {
+        // Flip the camera (toggle between front and back)
+        if (camera != null) {
+            CameraSelector cameraSelector = (camera.getCameraInfo().getLensFacing()
+                    == CameraSelector.LENS_FACING_BACK)
+                    ? new CameraSelector.Builder().requireLensFacing(CameraSelector.LENS_FACING_FRONT).build()
+                    : new CameraSelector.Builder().requireLensFacing(CameraSelector.LENS_FACING_BACK).build();
+            startCamera(cameraSelector); // Reinitialize camera with new selector
+        }
+    }
+
+    private void startCamera(CameraSelector cameraSelector) {
+        ListenableFuture<ProcessCameraProvider> cameraProviderFuture = ProcessCameraProvider.getInstance(this);
+        cameraProviderFuture.addListener(() -> {
+            try {
+                ProcessCameraProvider cameraProvider = cameraProviderFuture.get();
+                cameraProvider.unbindAll(); // Unbind all use cases before rebinding
+                Preview preview = new Preview.Builder().build();
+                preview.setSurfaceProvider(viewPreview.getSurfaceProvider());
+                camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview);
+            } catch (ExecutionException | InterruptedException e) {
+                Toast.makeText(this, "Failed to flip camera", Toast.LENGTH_SHORT).show();
+            }
+        }, ContextCompat.getMainExecutor(this));
+    }
+
+    // Handle permission request result
     @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        // Menutup executor setelah aktivitas dihancurkan
-        cameraExecutor.shutdown();
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 1 && grantResults.length > 0 && grantResults[0] == PermissionChecker.PERMISSION_GRANTED) {
+            startCamera();
+        } else {
+            Toast.makeText(this, "Camera permission is required", Toast.LENGTH_SHORT).show();
+        }
     }
 }
