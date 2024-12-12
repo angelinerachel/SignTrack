@@ -4,12 +4,12 @@ plugins {
 
 android {
     namespace = "com.example.signtrack"
-    compileSdk = 33 // API level 33
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.example.signtrack"
         minSdk = 29
-        targetSdk = 33 // API level 33
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0"
 
@@ -30,6 +30,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_1_8 // Gunakan Java 8
         targetCompatibility = JavaVersion.VERSION_1_8
     }
+
+    buildFeatures {
+        viewBinding = true // Aktifkan ViewBinding (penting untuk XML layout)
+    }
 }
 
 dependencies {
@@ -40,9 +44,10 @@ dependencies {
     implementation(libs.constraintlayout)
 
     // CameraX dependencies
-    implementation("androidx.camera:camera-core:1.2.0") // CameraX core
-    implementation("androidx.camera:camera-camera2:1.2.0") // Camera2 (untuk CameraX)
-    implementation("androidx.camera:camera-lifecycle:1.2.0") // CameraX lifecycle support
+    implementation("androidx.camera:camera-core:1.4.0") // Versi stabil terbaru
+    implementation("androidx.camera:camera-camera2:1.4.0") // Kamera backend Camera2
+    implementation("androidx.camera:camera-lifecycle:1.4.0") // Integrasi lifecycle
+    implementation("androidx.camera:camera-view:1.4.0") // Mendukung PreviewView
 
     // Testing dependencies
     testImplementation(libs.junit)

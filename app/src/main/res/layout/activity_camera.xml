@@ -42,7 +42,7 @@
       app:layout_constraintBottom_toTopOf="@id/translationLayout" />
 
   <!-- Focus Circle -->
-  <com.coding.camerausingcamerax.FocusCircleView
+  <com.example.signtrack.FocusCircleView
       android:id="@+id/focusCircleView"
       android:layout_width="0dp"
       android:layout_height="0dp"
