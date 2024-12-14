@@ -2,6 +2,7 @@
 <androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/gradient_background">
@@ -58,6 +59,8 @@
       app:layout_constraintHeight_percent="0.6" />
 
   <!-- Translation Box -->
+
+  <!-- Button Back -->
   <LinearLayout
       android:id="@+id/translationLayout"
       android:layout_width="match_parent"
@@ -68,7 +71,7 @@
       android:padding="16dp"
       app:layout_constraintBottom_toBottomOf="parent"
       app:layout_constraintEnd_toEndOf="parent"
-      app:layout_constraintHeight_percent="0.25"
+      app:layout_constraintHeight_percent="0.20"
       app:layout_constraintHorizontal_bias="1.0"
       app:layout_constraintStart_toStartOf="parent"
       app:layout_constraintTop_toBottomOf="@id/cameraPreview">
@@ -89,13 +92,12 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
+        android:padding="16dp"
         android:text="Translation will appear here..."
         android:textColor="@android:color/black"
-        android:textSize="14sp"
-        android:padding="16dp" />
+        android:textSize="14sp" />
   </LinearLayout>
 
-  <!-- Button Back -->
   <ImageButton
       android:id="@+id/backButton"
       android:layout_width="60dp"
@@ -108,6 +110,5 @@
       android:background="?attr/selectableItemBackground"
       app:layout_constraintTop_toTopOf="parent"
       app:layout_constraintStart_toStartOf="parent" />
-
 
 </androidx.constraintlayout.widget.ConstraintLayout>
