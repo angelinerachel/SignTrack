@@ -1,0 +1,10 @@
+drink: 0
+computer: 1
+before: 2
+go: 3
+who: 4
+candy: 5
+cousin: 6
+deaf: 7
+help: 8
+no: 9

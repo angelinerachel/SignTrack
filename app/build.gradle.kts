@@ -47,4 +47,11 @@ dependencies {
 
     // CameraX PreviewView
     implementation("androidx.camera:camera-view:1.3.1")
+
+    implementation "androidx.camera:camera-core:1.3.1"
+    implementation "androidx.camera:camera-lifecycle:1.3.1"
+
+    //Tensorflow-Lite Library
+    implementation 'org.tensorflow:tensorflow-lite:2.12.0'
+    implementation 'org.tensorflow:tensorflow-lite-support:0.4.3'
 }
