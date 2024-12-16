@@ -1,7 +1,9 @@
-// CameraActivity.java
 package com.example.signtrack;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.ImageButton;
@@ -9,18 +11,23 @@ import android.widget.TextView;
 
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.camera.lifecycle.ProcessCameraProvider;
-import androidx.camera.view.PreviewView;
-import androidx.camera.core.Preview;
+import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ImageAnalysis;
+import androidx.camera.core.ImageProxy;
+import androidx.camera.core.Preview;
+import androidx.camera.lifecycle.ProcessCameraProvider;
+import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.camera.view.PreviewView;
 
 import com.google.common.util.concurrent.ListenableFuture;
 
 import org.tensorflow.lite.Interpreter;
 
 import java.io.BufferedReader;
-import java.io.InputStream;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
+import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.ArrayDeque;
@@ -30,6 +37,7 @@ import java.util.Queue;
 
 public class CameraActivity extends AppCompatActivity {
     private static final String TAG = "CameraActivity";
+    private static final int REQUEST_CAMERA_PERMISSION = 1;
 
     private PreviewView cameraPreview;
     private TextView translationText;
@@ -40,9 +48,10 @@ public class CameraActivity extends AppCompatActivity {
 
     private Queue<float[]> temporalWindow = new ArrayDeque<>();
     private static final int TEMPORAL_WINDOW_SIZE = 10;
-    private static final int FIXED_LENGTH = 392; // Replace with actual feature length
+    private static final int FIXED_LENGTH = 392;
     private static final int NUM_NODES = 4;
     private static final int FEATURES_PER_NODE = FIXED_LENGTH / NUM_NODES;
+    private static final int INPUT_RESOLUTION = 128;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -50,15 +59,12 @@ public class CameraActivity extends AppCompatActivity {
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_camera);
 
-        // Link layout components
         cameraPreview = findViewById(R.id.cameraPreview);
         translationText = findViewById(R.id.translationText);
         backButton = findViewById(R.id.backButton);
 
-        // Set up back button click event
         backButton.setOnClickListener(v -> finish());
 
-        // Initialize TensorFlow Lite interpreter and labels
         try {
             tfliteInterpreter = new Interpreter(loadModelFile());
             labelList = loadLabels();
@@ -66,25 +72,25 @@ public class CameraActivity extends AppCompatActivity {
             Log.e(TAG, "Error initializing TensorFlow Lite model", e);
         }
 
-        // Start the camera feed
-        startCamera();
-    }
-
-    private MappedByteBuffer loadModelFile() throws Exception {
-        InputStream is = getAssets().open("temporal_stgcn_model.tflite");
-        FileChannel fileChannel = is.getChannel();
-        return fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, is.available());
-    }
-
-    private List<String> loadLabels() throws Exception {
-        List<String> labels = new ArrayList<>();
-        BufferedReader reader = new BufferedReader(new InputStreamReader(getAssets().open("label_encoder.txt")));
-        String line;
-        while ((line = reader.readLine()) != null) {
-            labels.add(line);
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, REQUEST_CAMERA_PERMISSION);
+        } else {
+            startCamera(); // Start the camera if permission is already granted
         }
-        reader.close();
-        return labels;
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_CAMERA_PERMISSION) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                startCamera(); // Start camera if permission is granted
+            } else {
+                Log.e(TAG, "Camera permission denied. The app requires camera permission to function.");
+                finish();
+            }
+        }
     }
 
     private void startCamera() {
@@ -97,8 +103,21 @@ public class CameraActivity extends AppCompatActivity {
                 preview.setSurfaceProvider(cameraPreview.getSurfaceProvider());
 
                 ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
-                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .build();
+                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        .build();
+
+                CameraSelector cameraSelector;
+
+                // Check for back-facing camera; fallback to front if not available
+                if (cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)) {
+                    cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
+                } else if (cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)) {
+                    cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA;
+                    Log.w(TAG, "No back-facing camera found. Using front-facing camera as fallback.");
+                } else {
+                    Log.e(TAG, "No available cameras on the device.");
+                    return;
+                }
 
                 imageAnalysis.setAnalyzer(ContextCompat.getMainExecutor(this), image -> {
                     Bitmap bitmap = convertImageProxyToBitmap(image);
@@ -106,11 +125,37 @@ public class CameraActivity extends AppCompatActivity {
                     image.close();
                 });
 
-                cameraProvider.bindToLifecycle(this, cameraProvider.getDefaultCameraSelector(), preview, imageAnalysis);
+                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis);
+
             } catch (Exception e) {
-                Log.e(TAG, "Camera initialization failed.", e);
+                Log.e(TAG, "Camera initialization failed. Check for available camera hardware.", e);
             }
         }, ContextCompat.getMainExecutor(this));
+    }
+
+    private MappedByteBuffer loadModelFile() throws Exception {
+        try (FileInputStream inputStream = new FileInputStream(getAssets().openFd("temporal_stgcn_model.tflite").getFileDescriptor())) {
+            FileChannel fileChannel = inputStream.getChannel();
+            return fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, inputStream.available());
+        }
+    }
+
+    private List<String> loadLabels() throws Exception {
+        List<String> labels = new ArrayList<>();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(getAssets().open("label_encoder.txt")))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                labels.add(line);
+            }
+        }
+        return labels;
+    }
+
+    private Bitmap convertImageProxyToBitmap(ImageProxy image) {
+        ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+        byte[] bytes = new byte[buffer.remaining()];
+        buffer.get(bytes);
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
     }
 
     private void processFrame(Bitmap bitmap) {
@@ -133,15 +178,13 @@ public class CameraActivity extends AppCompatActivity {
     }
 
     private float[] preprocessFrame(Bitmap bitmap) {
-        // Resize, grayscale, and extract features
-        return new float[FIXED_LENGTH]; // Replace with real preprocessing logic
+        return new float[FIXED_LENGTH];
     }
 
     private float[][][][] prepareInputData() {
         float[][][][] inputData = new float[1][TEMPORAL_WINDOW_SIZE][NUM_NODES][FEATURES_PER_NODE];
         int i = 0;
         for (float[] feature : temporalWindow) {
-            // Populate inputData with temporalWindow data
             i++;
         }
         return inputData;

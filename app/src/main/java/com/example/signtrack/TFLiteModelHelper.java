@@ -2,6 +2,9 @@ import android.content.res.AssetFileDescriptor;
 import org.tensorflow.lite.Interpreter;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
+import java.io.FileInputStream;
+import java.io.FileDescriptor;
+import java.nio.channels.FileChannel;
 
 public class TFLiteModelHelper {
     private Interpreter tfliteInterpreter;
@@ -20,7 +23,7 @@ public class TFLiteModelHelper {
     public float[][] predict(float[][][][] inputData) {
         // Input: [1, TEMPORAL_WINDOW_SIZE, NUM_NODES, FEATURES_PER_NODE]
         // Output: [1, numClasses]
-        float[][] output = new float[1][LABEL_COUNT];  // Adjust LABEL_COUNT
+        float[][] output = new float[1][10];  // Adjust LABEL_COUNT
         tfliteInterpreter.run(inputData, output);
         return output;
     }
