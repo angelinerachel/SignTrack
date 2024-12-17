@@ -2,164 +2,111 @@ package com.example.signtrack;
 
 import android.Manifest;
 import android.content.pm.PackageManager;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.os.Bundle;
 import android.util.Log;
-import android.widget.ImageButton;
-import android.widget.TextView;
+import android.widget.Toast;
 
-import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.camera.core.CameraSelector;
-import androidx.camera.core.ImageAnalysis;
-import androidx.camera.core.ImageProxy;
-import androidx.camera.core.Preview;
-import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-import androidx.camera.view.PreviewView;
 
-import com.google.common.util.concurrent.ListenableFuture;
-
+import org.opencv.android.CameraBridgeViewBase;
+import org.opencv.android.CameraBridgeViewBase.CvCameraViewFrame;
+import org.opencv.android.CameraBridgeViewBase.CvCameraViewListener2;
+import org.opencv.android.OpenCVLoader;
+import org.opencv.Xcore.CvType;
+import org.opencv.core.Mat;
 import org.tensorflow.lite.Interpreter;
 
-import java.io.BufferedReader;
-import java.io.FileInputStream;
-import java.io.InputStreamReader;
-import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
+import java.io.FileInputStream;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Queue;
 
-public class CameraActivity extends AppCompatActivity {
+public class CameraActivity extends AppCompatActivity implements CvCameraViewListener2 {
     private static final String TAG = "CameraActivity";
-    private static final int REQUEST_CAMERA_PERMISSION = 1;
+    private static final int PERMISSION_REQUEST_CODE = 10;
 
-    private PreviewView cameraPreview;
-    private TextView translationText;
-    private ImageButton backButton;
-
+    private CameraBridgeViewBase openCvCameraView;
     private Interpreter tfliteInterpreter;
     private List<String> labelList;
 
     private Queue<float[]> temporalWindow = new ArrayDeque<>();
     private static final int TEMPORAL_WINDOW_SIZE = 10;
     private static final int FIXED_LENGTH = 392;
-    private static final int NUM_NODES = 4;
-    private static final int FEATURES_PER_NODE = FIXED_LENGTH / NUM_NODES;
-    private static final int INPUT_RESOLUTION = 128;
+
+    private Mat frameMat;
+    private Object CameraBridgeViewBase;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        EdgeToEdge.enable(this);
         setContentView(R.layout.activity_camera);
 
-        cameraPreview = findViewById(R.id.cameraPreview);
-        translationText = findViewById(R.id.translationText);
-        backButton = findViewById(R.id.backButton);
+        if (!OpenCVLoader.initDebug()) {
+            Log.e(TAG, "OpenCV initialization failed.");
+            Toast.makeText(this, "Failed to load OpenCV", Toast.LENGTH_SHORT).show();
+            finish();
+        }
 
-        backButton.setOnClickListener(v -> finish());
+        // Initialize OpenCV Camera View
+        openCvCameraView = findViewById(R.id.cameraPreview);
+        openCvCameraView.setVisibility(CameraBridgeViewBase.VISIBLE);
+        openCvCameraView.setCvCameraViewListener(this);
+
+        // Check permissions
+        if (allPermissionsGranted()) {
+            openCvCameraView.enableView();
+        } else {
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, PERMISSION_REQUEST_CODE);
+        }
 
         try {
             tfliteInterpreter = new Interpreter(loadModelFile());
-            labelList = loadLabels();
+            Log.i(TAG, "TensorFlow Lite model loaded successfully.");
         } catch (Exception e) {
-            Log.e(TAG, "Error initializing TensorFlow Lite model", e);
+            Log.e(TAG, "Error loading TensorFlow Lite model", e);
+            finish();
         }
+    }
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, REQUEST_CAMERA_PERMISSION);
-        } else {
-            startCamera(); // Start the camera if permission is already granted
-        }
+    private boolean allPermissionsGranted() {
+        return ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                == PackageManager.PERMISSION_GRANTED;
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQUEST_CAMERA_PERMISSION) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                startCamera(); // Start camera if permission is granted
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            if (allPermissionsGranted()) {
+                openCvCameraView.enableView();
             } else {
-                Log.e(TAG, "Camera permission denied. The app requires camera permission to function.");
+                Toast.makeText(this, "Camera permission required", Toast.LENGTH_SHORT).show();
                 finish();
             }
         }
     }
 
-    private void startCamera() {
-        ListenableFuture<ProcessCameraProvider> cameraProviderFuture = ProcessCameraProvider.getInstance(this);
-
-        cameraProviderFuture.addListener(() -> {
-            try {
-                ProcessCameraProvider cameraProvider = cameraProviderFuture.get();
-                Preview preview = new Preview.Builder().build();
-                preview.setSurfaceProvider(cameraPreview.getSurfaceProvider());
-
-                ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
-                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                        .build();
-
-                CameraSelector cameraSelector;
-
-                // Check for back-facing camera; fallback to front if not available
-                if (cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)) {
-                    cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
-                } else if (cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)) {
-                    cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA;
-                    Log.w(TAG, "No back-facing camera found. Using front-facing camera as fallback.");
-                } else {
-                    Log.e(TAG, "No available cameras on the device.");
-                    return;
-                }
-
-                imageAnalysis.setAnalyzer(ContextCompat.getMainExecutor(this), image -> {
-                    Bitmap bitmap = convertImageProxyToBitmap(image);
-                    processFrame(bitmap);
-                    image.close();
-                });
-
-                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis);
-
-            } catch (Exception e) {
-                Log.e(TAG, "Camera initialization failed. Check for available camera hardware.", e);
-            }
-        }, ContextCompat.getMainExecutor(this));
+    @Override
+    public void onCameraViewStarted(int width, int height) {
+        frameMat = new Mat(height, width, CvType.CV_8UC4);
     }
 
-    private MappedByteBuffer loadModelFile() throws Exception {
-        try (FileInputStream inputStream = new FileInputStream(getAssets().openFd("temporal_stgcn_model.tflite").getFileDescriptor())) {
-            FileChannel fileChannel = inputStream.getChannel();
-            return fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, inputStream.available());
-        }
+    @Override
+    public void onCameraViewStopped() {
+        frameMat.release();
     }
 
-    private List<String> loadLabels() throws Exception {
-        List<String> labels = new ArrayList<>();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(getAssets().open("label_encoder.txt")))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                labels.add(line);
-            }
-        }
-        return labels;
-    }
+    @Override
+    public Mat onCameraFrame(CvCameraViewFrame inputFrame) {
+        // Get current frame as a Mat object
+        frameMat = inputFrame.rgba();
 
-    private Bitmap convertImageProxyToBitmap(ImageProxy image) {
-        ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-        byte[] bytes = new byte[buffer.remaining()];
-        buffer.get(bytes);
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-    }
-
-    private void processFrame(Bitmap bitmap) {
-        float[] featureVector = preprocessFrame(bitmap);
+        // Perform processing here
+        float[] featureVector = preprocessFrame(frameMat);
         temporalWindow.add(featureVector);
 
         if (temporalWindow.size() > TEMPORAL_WINDOW_SIZE) {
@@ -167,27 +114,27 @@ public class CameraActivity extends AppCompatActivity {
         }
 
         if (temporalWindow.size() == TEMPORAL_WINDOW_SIZE) {
-            float[][][][] inputData = prepareInputData();
-            float[][] output = new float[1][labelList.size()];
-            tfliteInterpreter.run(inputData, output);
-
-            int maxIdx = getMaxIndex(output[0]);
-            String predictedLabel = labelList.get(maxIdx);
-            runOnUiThread(() -> translationText.setText(predictedLabel));
+            runInference();
         }
+
+        return frameMat; // Return processed frame for display
     }
 
-    private float[] preprocessFrame(Bitmap bitmap) {
-        return new float[FIXED_LENGTH];
+    private float[] preprocessFrame(Mat frame) {
+        // Placeholder preprocessing: Flatten the frame and normalize
+        float[] featureVector = new float[FIXED_LENGTH];
+        // Perform your preprocessing here
+        return featureVector;
     }
 
-    private float[][][][] prepareInputData() {
-        float[][][][] inputData = new float[1][TEMPORAL_WINDOW_SIZE][NUM_NODES][FEATURES_PER_NODE];
-        int i = 0;
-        for (float[] feature : temporalWindow) {
-            i++;
-        }
-        return inputData;
+    private void runInference() {
+        float[][][][] inputData = new float[1][TEMPORAL_WINDOW_SIZE][1][FIXED_LENGTH];
+        float[][] output = new float[1][labelList.size()];
+        tfliteInterpreter.run(inputData, output);
+
+        int maxIndex = getMaxIndex(output[0]);
+        String prediction = labelList.get(maxIndex);
+        runOnUiThread(() -> Toast.makeText(this, "Prediction: " + prediction, Toast.LENGTH_SHORT).show());
     }
 
     private int getMaxIndex(float[] probabilities) {
@@ -198,5 +145,14 @@ public class CameraActivity extends AppCompatActivity {
             }
         }
         return maxIndex;
+    }
+
+    private MappedByteBuffer loadModelFile() throws Exception {
+        try (FileInputStream inputStream = new FileInputStream(getAssets().openFd("temporal_stgcn_model.tflite").getFileDescriptor())) {
+            FileChannel fileChannel = inputStream.getChannel();
+            long startOffset = getAssets().openFd("temporal_stgcn_model.tflite").getStartOffset();
+            long declaredLength = getAssets().openFd("temporal_stgcn_model.tflite").getDeclaredLength();
+            return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength);
+        }
     }
 }

@@ -42,19 +42,23 @@ dependencies {
 
 
 
-    //Core CameraX Library
-    implementation("androidx.camera:camera-core:1.3.1")
-    implementation("androidx.camera:camera-camera2:1.3.1")
-    implementation("androidx.camera:camera-lifecycle:1.3.1")
-    implementation("androidx.camera:camera-view:1.3.1")
-
-    // CameraX PreviewView
-    implementation("androidx.camera:camera-view:1.3.1")
+//    //Core CameraX Library
+////    implementation("androidx.camera:camera-core:1.3.1")
+////    implementation("androidx.camera:camera-camera2:1.3.1")
+////    implementation("androidx.camera:camera-lifecycle:1.3.1")
+////    implementation("androidx.camera:camera-view:1.3.1")
+////
+////    // CameraX PreviewView
+////    implementation("androidx.camera:camera-view:1.3.1")
 
     //Tensorflow-Lite Library
     implementation("org.tensorflow:tensorflow-lite:2.12.0")
     implementation("org.tensorflow:tensorflow-lite-support:0.4.3")
     implementation("org.tensorflow:tensorflow-lite-select-tf-ops:2.12.0")
     implementation("com.google.guava:guava:31.1-android")
+
+    implementation(project(":opencv"))
+    implementation("org.tensorflow:tensorflow-lite:2.8.0")
+
 
 }

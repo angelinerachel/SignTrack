@@ -21,4 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "SignTrack"
 include(":app")
- 
+include(":opencv")
